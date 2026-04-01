@@ -1,0 +1,3 @@
+tags:
+  real_relay:
+    skip: "Requires network access to wss://nostr.001.j5s9.dev. Run with: dart test --tags real_relay --run-skipped"
