@@ -6,7 +6,9 @@ import '../ordering/ordering_strategy.dart';
 import '../ordering/no_cache_ordering.dart';
 import 'rpc_protocol.dart';
 
+/// A JSON-RPC 2.0 connection implementation for Nostr RPC protocol.
 class JsonRpcConnection extends RpcConnection {
+  /// Creates a [JsonRpcConnection] with the specified peer and communication channel.
   JsonRpcConnection({
     required this.peerPubkeyHex,
     required rpc.Peer peer,

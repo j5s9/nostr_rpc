@@ -10,12 +10,16 @@ abstract class AcceptanceStrategy {
 
 /// Always accepts any peer without asking.
 class AlwaysAcceptStrategy extends AcceptanceStrategy {
+  /// Creates an instance of [AlwaysAcceptStrategy].
+  AlwaysAcceptStrategy();
+
   @override
   Future<bool> shouldAccept(String peerPubkeyHex) async => true;
 }
 
 /// Always invokes the [onNewPeer] callback for every peer, every time.
 class AlwaysAskStrategy extends AcceptanceStrategy {
+  /// Creates an instance of [AlwaysAskStrategy] with the given [onNewPeer] callback.
   AlwaysAskStrategy({required Future<bool> Function(String pubkey) onNewPeer})
     : _onNewPeer = onNewPeer;
 
@@ -29,6 +33,7 @@ class AlwaysAskStrategy extends AcceptanceStrategy {
 /// then caches the result for subsequent calls.
 /// Also handles concurrent requests for the same peer — callback called only ONCE.
 class CachedApprovalStrategy extends AcceptanceStrategy {
+  /// Creates an instance of [CachedApprovalStrategy] with the given [onNewPeer] callback.
   CachedApprovalStrategy({
     required Future<bool> Function(String pubkey) onNewPeer,
   }) : _onNewPeer = onNewPeer;
