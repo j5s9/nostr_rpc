@@ -11,7 +11,7 @@ import 'sequence_wrapper.dart';
 /// When seq==expected, delivers immediately and drains buffer.
 /// When seq>expected, buffers and starts a [Timer].
 /// When timer fires, applies [TimeoutFallback] strategy.
-class SequenceCacheOrdering extends OrderingStrategy {
+class SequenceCacheOrdering extends OrderingStrategy<Map<String, dynamic>> {
   SequenceCacheOrdering({
     this.timeout = const Duration(milliseconds: 500),
     this.fallback = TimeoutFallback.flushOutOfOrder,
@@ -23,20 +23,22 @@ class SequenceCacheOrdering extends OrderingStrategy {
 
   int _outgoingSeq = 0;
   int _expectedSeq;
-  final SplayTreeMap<int, String> _buffer = SplayTreeMap<int, String>();
+  final SplayTreeMap<int, Map<String, dynamic>> _buffer =
+      SplayTreeMap<int, Map<String, dynamic>>();
   Timer? _timer;
-  // ignore: unused_field
-  void Function(String payload)? _currentDeliver;
 
   @override
-  String wrapOutgoing(String payload) {
+  String wrapOutgoing(Map<String, dynamic> payload) {
     final wrapped = SequenceWrapper.wrap(_outgoingSeq, payload);
     _outgoingSeq++;
-    return wrapped;
+    return jsonEncode(wrapped);
   }
 
   @override
-  void handleIncoming(String raw, void Function(String payload) deliver) {
+  void handleIncoming(
+    Map<String, dynamic> raw,
+    void Function(Map<String, dynamic> payload) deliver,
+  ) {
     final wrapped = _tryUnwrap(raw);
     if (wrapped == null) {
       deliver(raw);
@@ -44,7 +46,7 @@ class SequenceCacheOrdering extends OrderingStrategy {
     }
 
     final (seq, data) = wrapped;
-    _currentDeliver = deliver;
+    // deliver is passed to timer closures directly; no field needed
 
     if (seq == _expectedSeq) {
       // In-order: deliver immediately, drain buffer
@@ -57,16 +59,19 @@ class SequenceCacheOrdering extends OrderingStrategy {
     // seq < _expectedSeq → ignore (duplicate or old)
   }
 
-  (int, String)? _tryUnwrap(String raw) {
-    final decoded = jsonDecode(raw);
-    if (decoded is! Map<String, dynamic>) return null;
-    final seq = decoded['seq'];
-    final data = decoded['data'];
-    if (seq is! int || data is! String) return null;
-    return (seq, data);
+  (int, Map<String, dynamic>)? _tryUnwrap(Map<String, dynamic> raw) {
+    final seq = raw['seq'];
+    final data = raw['data'];
+    if (seq is! int || data is! Map) return null;
+
+    return (seq, Map<String, dynamic>.from(data));
   }
 
-  void _deliverAndDrain(int seq, String data, void Function(String) deliver) {
+  void _deliverAndDrain(
+    int seq,
+    Map<String, dynamic> data,
+    void Function(Map<String, dynamic>) deliver,
+  ) {
     _cancelTimer();
     deliver(data);
     _expectedSeq = seq + 1;
@@ -84,7 +89,7 @@ class SequenceCacheOrdering extends OrderingStrategy {
     }
   }
 
-  void _startTimerIfNeeded(void Function(String) deliver) {
+  void _startTimerIfNeeded(void Function(Map<String, dynamic>) deliver) {
     if (_timer != null) return; // already running
     _timer = Timer(timeout, () => _onTimeout(deliver));
   }
@@ -94,7 +99,7 @@ class SequenceCacheOrdering extends OrderingStrategy {
     _timer = null;
   }
 
-  void _onTimeout(void Function(String) deliver) {
+  void _onTimeout(void Function(Map<String, dynamic>) deliver) {
     _timer = null;
     switch (fallback) {
       case TimeoutFallback.flushOutOfOrder:
@@ -124,6 +129,5 @@ class SequenceCacheOrdering extends OrderingStrategy {
   void dispose() {
     _cancelTimer();
     _buffer.clear();
-    _currentDeliver = null;
   }
 }

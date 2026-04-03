@@ -22,13 +22,16 @@ class SequenceGapException implements Exception {
 
 /// Abstract strategy for wrapping outgoing payloads with ordering info
 /// and reordering incoming payloads before delivery.
-abstract class OrderingStrategy {
+abstract class OrderingStrategy<T> {
   /// Wrap an outgoing payload (e.g., add sequence number).
-  String wrapOutgoing(String payload);
+  String wrapOutgoing(T payload);
 
-  /// Handle an incoming raw message (possibly wrapped with seq).
+  /// Handle an incoming raw message (wrapped with seq).
   /// Calls [deliver] with the unwrapped payload when ready to deliver.
-  void handleIncoming(String raw, void Function(String payload) deliver);
+  void handleIncoming(
+    Map<String, dynamic> raw,
+    void Function(T payload) deliver,
+  );
 
   /// Release resources (cancel timers, clear buffers).
   void dispose();

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:json_rpc_2/json_rpc_2.dart' as rpc;
 import 'package:stream_channel/stream_channel.dart';
 
@@ -13,7 +14,7 @@ class JsonRpcConnection extends RpcConnection {
     required this.peerPubkeyHex,
     required rpc.Peer peer,
     required StreamChannelController<String> channelController,
-    required OrderingStrategy ordering,
+    required OrderingStrategy<Map<String, dynamic>> ordering,
   }) : _peer = peer,
        _channelController = channelController,
        _ordering = ordering;
@@ -23,21 +24,31 @@ class JsonRpcConnection extends RpcConnection {
 
   final rpc.Peer _peer;
   final StreamChannelController<String> _channelController;
-  final OrderingStrategy _ordering;
+  final OrderingStrategy<Map<String, dynamic>> _ordering;
 
   /// The underlying json_rpc_2 Peer for advanced use.
   rpc.Peer get rpcPeer => _peer;
-
-  void registerMethod(String name, Function callback) =>
+    /// Register a JSON-RPC method handler for incoming requests from the peer.
+    ///
+    /// [name] is the method name and [callback] is invoked with the request
+    /// parameters when a matching request arrives.
+    void registerMethod(String name, Function callback) =>
       _peer.registerMethod(name, callback);
 
-  void registerFallback(void Function(rpc.Parameters) callback) =>
+    /// Register a fallback handler that receives requests which don't match any
+    /// registered method. Useful for forwarding or logging unexpected calls.
+    void registerFallback(void Function(rpc.Parameters) callback) =>
       _peer.registerFallback(callback);
 
-  Future<dynamic> sendRequest(String method, [dynamic parameters]) =>
+    /// Send a JSON-RPC request to the remote peer and return its result.
+    ///
+    /// [method] is the RPC method name and [parameters] are optional parameters
+    /// to pass. The returned `Future` completes with the response value.
+    Future<dynamic> sendRequest(String method, [dynamic parameters]) =>
       _peer.sendRequest(method, parameters);
 
-  void sendNotification(String method, [dynamic parameters]) =>
+    /// Send a JSON-RPC notification (no response expected) to the remote peer.
+    void sendNotification(String method, [dynamic parameters]) =>
       _peer.sendNotification(method, parameters);
 
   @override
@@ -54,10 +65,11 @@ class JsonRpcConnection extends RpcConnection {
 class JsonRpcProtocol extends RpcProtocol<JsonRpcConnection> {
   /// [orderingFactory] creates a fresh [OrderingStrategy] per connection.
   /// Defaults to [NoCacheOrdering].
-  JsonRpcProtocol({OrderingStrategy Function()? orderingFactory})
-    : _orderingFactory = orderingFactory ?? NoCacheOrdering.new;
+  JsonRpcProtocol({
+    OrderingStrategy<Map<String, dynamic>> Function()? orderingFactory,
+  }) : _orderingFactory = orderingFactory ?? NoCacheOrdering.new;
 
-  final OrderingStrategy Function() _orderingFactory;
+  final OrderingStrategy<Map<String, dynamic>> Function() _orderingFactory;
 
   @override
   JsonRpcConnection createConnection(String peerPubkeyHex, RawChannel channel) {
@@ -77,9 +89,14 @@ class JsonRpcProtocol extends RpcProtocol<JsonRpcConnection> {
     // Incoming: RawChannel.incoming → unwrap ordering → local.sink → json_rpc_2 foreign.stream
     channel.incoming.listen(
       (raw) {
-        ordering.handleIncoming(raw, (payload) {
+        final decoded = _tryDecodeJsonObject(raw);
+        if (decoded == null) {
+          return;
+        }
+
+        ordering.handleIncoming(decoded, (payload) {
           try {
-            controller.local.sink.add(payload);
+            controller.local.sink.add(jsonEncode(payload));
           } catch (_) {
             // Sink may be closed if peer disconnected
           }
@@ -96,7 +113,13 @@ class JsonRpcProtocol extends RpcProtocol<JsonRpcConnection> {
     // Outgoing: json_rpc_2 foreign.sink → local.stream → wrap ordering → RawChannel.outgoing
     controller.local.stream.listen(
       (payload) {
-        final wrapped = ordering.wrapOutgoing(payload);
+        final decoded = _tryDecodeJsonObject(payload);
+        if (decoded == null) {
+          channel.outgoing.add(payload);
+          return;
+        }
+
+        final wrapped = ordering.wrapOutgoing(decoded);
         channel.outgoing.add(wrapped);
       },
       onDone: () {
@@ -114,5 +137,20 @@ class JsonRpcProtocol extends RpcProtocol<JsonRpcConnection> {
       channelController: controller,
       ordering: ordering,
     );
+  }
+
+  Map<String, dynamic>? _tryDecodeJsonObject(String raw) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return null;
+    }
+
+    if (decoded is! Map) {
+      return null;
+    }
+
+    return Map<String, dynamic>.from(decoded);
   }
 }

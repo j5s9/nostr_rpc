@@ -1,6 +1,9 @@
 /// Strategy interface for deciding whether to accept an incoming connection
 /// from a peer identified by their hex public key.
 abstract class AcceptanceStrategy {
+  /// Creates a new [AcceptanceStrategy].
+  const AcceptanceStrategy();
+
   /// Returns true if the peer with [peerPubkeyHex] should be accepted.
   Future<bool> shouldAccept(String peerPubkeyHex);
 

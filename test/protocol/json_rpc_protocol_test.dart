@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 
 import 'package:nostr_rpc/src/protocol/rpc_protocol.dart';
 import 'package:nostr_rpc/src/protocol/json_rpc_protocol.dart';
+import 'package:nostr_rpc/src/protocol/json_rpc_with_sequence_cache_protocol.dart';
 
 /// Creates a pair of connected RawChannels backed by in-memory stream
 /// controllers. Data written to A.outgoing appears on B.incoming and vice versa.
@@ -141,6 +142,67 @@ void main() {
       await clientConn.close();
       await close();
     });
+
+    test(
+      'sequence-cache protocol preserves arbitrary JSON params types',
+      () async {
+        final protocol = JsonRpcWithSequenceCacheProtocol();
+        final (:channelA, :channelB, :close) = _makePairedChannels();
+
+        final serverConn = protocol.createConnection('server', channelA);
+        serverConn.registerMethod('reflect', (rpc.Parameters params) {
+          return {
+            'map': params['map'].asMap,
+            'list': params['list'].asList,
+            'string': params['string'].asString,
+            'number': params['number'].asInt,
+            'bool': params['bool'].asBool,
+            'nullable': params['nullable'].value,
+          };
+        });
+
+        final clientConn = protocol.createConnection('client', channelB);
+
+        final response = await clientConn
+            .sendRequest('reflect', {
+              'map': {
+                'nested': [1, true, null],
+              },
+              'list': [
+                'a',
+                {'b': 2},
+                false,
+              ],
+              'string': 'hello',
+              'number': 42,
+              'bool': true,
+              'nullable': null,
+            })
+            .timeout(const Duration(seconds: 5));
+
+        expect(
+          response,
+          equals({
+            'map': {
+              'nested': [1, true, null],
+            },
+            'list': [
+              'a',
+              {'b': 2},
+              false,
+            ],
+            'string': 'hello',
+            'number': 42,
+            'bool': true,
+            'nullable': null,
+          }),
+        );
+
+        await serverConn.close();
+        await clientConn.close();
+        await close();
+      },
+    );
   });
 
   group('JsonRpcProtocol — dispose', () {
